@@ -1,7 +1,9 @@
 """
 ДП Документ Вроцлав — облачный монитор свободных слотов
 
-Логика: если страница загрузилась и НЕТ фразы "всі місця зайняті" — значит места есть.
+Логика:
+если страница загрузилась и НЕТ признаков фразы "місця зайняті"
+→ значит возможно есть свободные слоты
 """
 
 import os
@@ -17,14 +19,6 @@ TARGET_URL         = "https://wroclaw.pasport.org.ua/solutions/e-queue"
 
 EXPIRY_DATE = datetime(2026, 6, 1, tzinfo=timezone.utc)
 WARSAW_TZ   = timezone(timedelta(hours=2))
-
-# ── Отсекающие фразы ─────────────────────────
-NEGATIVE_PHRASES = [
-    "наразі всі місця зайняті",
-    "всі місця зайняті",
-    "немає вільних місць",
-    "наразі всі місця зайняті. будь ласка, спробуйте в інший час або день",
-]
 
 # ── Telegram ─────────────────────────────────
 def send_telegram(text):
@@ -57,26 +51,29 @@ def check_page():
 
         try:
             page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(6000)
         except Exception as e:
             browser.close()
             return False, f"Ошибка загрузки: {e}"
 
-        # Получаем и нормализуем HTML
         content = page.content().lower()
+
+        # нормализация пробелов/переносов
         content = " ".join(content.split())
 
-        # debug (можно отключить позже)
+        # debug (оставь пока тестируешь)
         with open("debug.html", "w", encoding="utf-8") as f:
             f.write(content)
 
         browser.close()
 
-    # ── Главная логика ──
-    if any(phrase in content for phrase in NEGATIVE_PHRASES):
-        return False, "Фраза есть — мест нет"
+    # ── ГЛАВНАЯ ЛОГИКА ──
+    # ловим смысл: "місця зайняті"
+    if ("зайняті" in content and "місц" in content) or \
+       ("немає" in content and "місц" in content):
+        return False, "Обнаружено: мест нет (зайняті / немає)"
     else:
-        return True, "Фразы нет — возможно есть слоты"
+        return True, "Фраза о занятых местах НЕ найдена"
 
 # ── Основная функция ─────────────────────────
 def main():
@@ -97,7 +94,7 @@ def main():
             f"🟢 <b>ВОЗМОЖНО ЕСТЬ СЛОТЫ</b>\n\n"
             f"📍 ДП Документ Вроцлав\n"
             f"🕐 {now_str}\n"
-            f"ℹ️ Фраза «всі місця зайняті» НЕ найдена\n\n"
+            f"ℹ️ {msg}\n\n"
             f"<a href='{TARGET_URL}'>Открыть сайт</a>"
         )
     else:
