@@ -1,8 +1,6 @@
 """
 ДП Документ Вроцлав — монитор свободных слотов
-Логика:
-1. Если Cloudflare блокировка — пропускаем
-2. Если НЕТ "всі місця зайняті" на реальной странице — есть слоты
+С residential proxy (WebShare, Germany)
 """
 import os
 import sys
@@ -16,19 +14,23 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "1737942735")
 TARGET_URL         = "https://wroclaw.pasport.org.ua/solutions/e-queue"
 EXPIRY_DATE        = datetime(2026, 6, 1, tzinfo=timezone.utc)
 WARSAW_TZ          = timezone(timedelta(hours=2))
-CHECK_INTERVAL     = 300  # секунд между проверками (5 минут)
+CHECK_INTERVAL     = 300  # 5 минут
 
-NEGATIVE_PHRASE    = "всі місця зайняті"
-
+NEGATIVE_PHRASE = "всі місця зайняті"
 BLOCK_PHRASES = [
     "security verification",
     "security service to protect",
     "cloudflare",
     "checking your browser",
-    "please wait",
-    "enable javascript",
     "ray id:",
 ]
+
+# Прокси WebShare Germany
+PROXY = {
+    "server":   "http://p.webshare.io:80",
+    "username": "dohwemux-de-3",
+    "password": "oinseleltx69",
+}
 
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN:
@@ -36,11 +38,7 @@ def send_telegram(text):
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text,
-                "parse_mode": "HTML",
-            },
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML"},
             timeout=10,
         )
     except:
@@ -51,8 +49,17 @@ def check_page():
         browser = pw.chromium.launch(
             headless=True,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
+            proxy=PROXY,
         )
-        page = browser.new_page()
+        ctx = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            locale="uk-UA",
+        )
+        page = ctx.new_page()
         try:
             page.goto(TARGET_URL, wait_until="networkidle", timeout=45000)
             page.wait_for_timeout(5000)
@@ -68,13 +75,13 @@ def check_page():
 
     for phrase in BLOCK_PHRASES:
         if phrase in text:
-            return None, f"Cloudflare блокировка (признак: «{phrase}»)"
+            return None, f"Заблокировано (признак: «{phrase}»)"
 
-    if "pasport" not in text and "документ" not in text and "місця" not in text:
+    if "pasport" not in text and "місця" not in text and "документ" not in text:
         return None, "Страница загрузилась некорректно"
 
     if NEGATIVE_PHRASE in text:
-        return False, "Найдена фраза: мест нет"
+        return False, "Мест нет"
     else:
         return True, "Фраза 'всі місця зайняті' НЕ найдена — возможна запись!"
 
@@ -83,7 +90,7 @@ def is_active_hours():
     return not (2 <= hour < 6)
 
 def main():
-    print("🚀 Монитор запущен, интервал: 5 мин.")
+    print("🚀 Монитор запущен с proxy (Germany), интервал: 5 мин.")
 
     while True:
         if datetime.now(timezone.utc) >= EXPIRY_DATE:
@@ -103,7 +110,7 @@ def main():
         if result is None:
             print(f"⚠️ {msg}")
         elif result:
-            print(f"✅ ЕСТЬ СЛОТЫ! {msg}")
+            print(f"✅ ЕСТЬ СЛОТЫ!")
             now_str = datetime.now(WARSAW_TZ).strftime("%d.%m.%Y %H:%M")
             send_telegram(
                 f"🟢 <b>ВОЗМОЖНО ЕСТЬ СЛОТЫ!</b>\n\n"
