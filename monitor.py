@@ -1,9 +1,6 @@
 """
 ДП Документ Вроцлав — облачный монитор свободных слотов
-Запускается через GitHub Actions каждые 5 минут.
-Внутри одного запуска делает 3 проверки с паузой 30 сек.
-При нахождении свободных мест — отправляет Telegram уведомление.
-Активен: до 01.06.2026, время: 06:00–02:00 по Варшаве.
+Логика: если страница загрузилась и НЕТ фразы "всі місця зайняті" — значит места есть.
 """
 
 import os
@@ -24,10 +21,29 @@ SLEEP_BETWEEN = int(os.environ.get("SLEEP_BETWEEN", "0"))
 EXPIRY_DATE = datetime(2026, 6, 1, tzinfo=timezone.utc)
 WARSAW_TZ   = timezone(timedelta(hours=2))  # CEST летнее время
 
+# ── Фразы которые сайт показывает когда мест НЕТ ─────────────────────────────
+NO_SLOTS_PHRASES = [
+    "всі місця зайняті",
+    "кількість талонів обмежена",
+    "спробуйте в інший час",
+    "немає вільних",
+    "запис недоступний",
+    "немає доступних",
+    "вільних місць немає",
+    "сервіс не доступний",
+]
+
+# ── Фразы которые говорят что страница вообще не загрузилась ─────────────────
+PAGE_ERROR_PHRASES = [
+    "service is not available",
+    "404",
+    "error",
+    "щось пішло не так",
+]
+
 # ── Проверка временного окна (06:00–02:00 по Варшаве) ────────────────────────
 def is_active_hours() -> bool:
     hour = datetime.now(WARSAW_TZ).hour
-    # Неактивен только с 02:00 до 05:59
     return not (2 <= hour < 6)
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
@@ -70,86 +86,32 @@ def check_slots() -> tuple[bool, str]:
             page.goto(TARGET_URL, wait_until="networkidle", timeout=45_000)
         except Exception as e:
             browser.close()
-            return False, f"Ошибка загрузки страницы: {e}"
+            return None, f"Ошибка загрузки страницы: {e}"
 
+        # Ждём пока JS полностью отрисует контент
         page.wait_for_timeout(5000)
         content = page.content().lower()
-
-        # ── 1. Негативные сигналы — мест точно нет ──
-        negatives = [
-            "всі місця зайняті",
-            "всі місця зайнят",
-            "кількість талонів обмежена",
-            "спробуйте в інший час",
-            "немає вільних",
-            "нет свободных",
-            "сервіс не доступний",
-            "сервис не доступен",
-            "service is not available",
-            "запис недоступний",
-            "немає доступних",
-            "вільних місць немає",
-        ]
-        for neg in negatives:
-            if neg in content:
-                page.screenshot(path="screenshot.png", full_page=True)
-                browser.close()
-                return False, f"Нет мест (фраза: «{neg}»)"
-
-        # ── 2. Активные ячейки календаря/слотов ──
-        slot_selectors = [
-            ".day:not(.disabled):not(.past):not(.off)",
-            "td.available",
-            "td.active:not(.disabled)",
-            "[class*='slot']:not([class*='disabled']):not([class*='booked'])",
-            "[class*='available']:not([class*='un'])",
-            "button.slot:not([disabled])",
-            "[data-date]:not(.disabled)",
-        ]
-        for sel in slot_selectors:
-            try:
-                els = page.query_selector_all(sel)
-                if els:
-                    page.screenshot(path="screenshot.png", full_page=True)
-                    browser.close()
-                    return True, f"Найдено доступных слотов: {len(els)}"
-            except Exception:
-                continue
-
-        # ── 3. Активные кнопки записи ──
-        positive_phrases = [
-            "вибрати дату",
-            "обрати дату",
-            "оформити документ",
-            "записатись",
-            "обрати час",
-            "вибрати час",
-            "підібрати час",
-        ]
-        for el in page.query_selector_all("button:not([disabled]), [role='button']:not([disabled])"):
-            try:
-                t = el.inner_text().strip().lower()
-                for phrase in positive_phrases:
-                    if phrase in t:
-                        page.screenshot(path="screenshot.png", full_page=True)
-                        browser.close()
-                        return True, f"Активная кнопка записи: «{t[:80]}»"
-            except Exception:
-                continue
-
-        # ── 4. Select/dropdown с доступными датами ──
-        try:
-            options = page.query_selector_all("select option:not([disabled]):not([value=''])")
-            if len(options) > 0:
-                page.screenshot(path="screenshot.png", full_page=True)
-                browser.close()
-                return True, f"Доступных дат в выпадающем списке: {len(options)}"
-        except Exception:
-            pass
-
         page.screenshot(path="screenshot.png", full_page=True)
         browser.close()
-        return False, "Свободных слотов не обнаружено"
+
+        # Проверяем что страница вообще загрузилась нормально
+        # Страница должна содержать хоть что-то специфичное для сайта
+        if "pasport" not in content and "документ" not in content:
+            return None, "Страница загрузилась некорректно — нет признаков сайта"
+
+        # Проверяем ошибки сервиса
+        for phrase in PAGE_ERROR_PHRASES:
+            if phrase in content and "pasport" not in content:
+                return None, f"Ошибка сервиса: «{phrase}»"
+
+        # Главная логика: ищем фразу "мест нет"
+        for phrase in NO_SLOTS_PHRASES:
+            if phrase in content:
+                return False, f"Мест нет (фраза: «{phrase}»)"
+
+        # Фраза "мест нет" НЕ найдена — значит страница открылась в рабочем режиме
+        # и показывает форму записи / календарь
+        return True, "Фраза 'всі місця зайняті' не найдена — вероятно доступна запись!"
 
 # ── Основная логика ───────────────────────────────────────────────────────────
 def main():
@@ -159,12 +121,10 @@ def main():
     print(f"Время UTC:     {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Время Варшава: {now_warsaw.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # Проверка срока действия
     if now_utc >= EXPIRY_DATE:
         print("⏹ Мониторинг завершён — истёк срок (01.06.2026).")
         sys.exit(0)
 
-    # Проверка временного окна
     if not is_active_hours():
         print("😴 Вне рабочего окна (02:00–06:00 по Варшаве). Пропускаем.")
         sys.exit(0)
@@ -177,14 +137,16 @@ def main():
 
         found, details = check_slots()
 
-        if found:
+        if found is None:
+            # Страница не загрузилась — пропускаем эту итерацию
+            print(f"⚠️ {details}")
+        elif found:
             print(f"✅ ЕСТЬ МЕСТА! {details}")
             now_str = datetime.now(WARSAW_TZ).strftime("%d.%m.%Y %H:%M по Варшаве")
             msg = (
                 f"🟢 <b>ЕСТЬ СВОБОДНЫЕ МЕСТА!</b>\n\n"
                 f"📍 ДП Документ Вроцлав\n"
-                f"🕐 {now_str}\n"
-                f"ℹ️ {details}\n\n"
+                f"🕐 {now_str}\n\n"
                 f"👉 <a href='{TARGET_URL}'>Записаться сейчас!</a>"
             )
             send_telegram(msg)
