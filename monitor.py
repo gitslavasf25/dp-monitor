@@ -173,10 +173,13 @@ def main():
         sys.exit(0)
 
     print(f"🔍 Запуск {CHECK_ROUNDS} проверок, пауза {SLEEP_BETWEEN} сек.\n")
+    send_telegram("🧪 Тест: бот работает! Мониторинг ДП Документ Вроцлав активен.")
+    sys.exit(0)
 
     for i in range(1, CHECK_ROUNDS + 1):
         ts = datetime.now(WARSAW_TZ).strftime("%H:%M:%S")
         print(f"[{ts}] Проверка {i}/{CHECK_ROUNDS}...", end=" ", flush=True)
+        
 
         found, details = check_slots()
 
