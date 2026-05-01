@@ -16,11 +16,10 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "1737942735")
 TARGET_URL         = "https://wroclaw.pasport.org.ua/solutions/e-queue"
 EXPIRY_DATE        = datetime(2026, 6, 1, tzinfo=timezone.utc)
 WARSAW_TZ          = timezone(timedelta(hours=2))
-CHECK_INTERVAL     = 60  # секунд между проверками
+CHECK_INTERVAL     = 300  # секунд между проверками (5 минут)
 
 NEGATIVE_PHRASE    = "всі місця зайняті"
 
-# Признаки что страница НЕ загрузилась (Cloudflare / ошибка)
 BLOCK_PHRASES = [
     "security verification",
     "security service to protect",
@@ -31,7 +30,6 @@ BLOCK_PHRASES = [
     "ray id:",
 ]
 
-# ─────────────────────────────────────────────
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN:
         return
@@ -48,7 +46,6 @@ def send_telegram(text):
     except:
         pass
 
-# ─────────────────────────────────────────────
 def check_page():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -69,29 +66,24 @@ def check_page():
 
     print("DEBUG TEXT:", text[:300])
 
-    # Проверяем что не Cloudflare блокировка
     for phrase in BLOCK_PHRASES:
         if phrase in text:
             return None, f"Cloudflare блокировка (признак: «{phrase}»)"
 
-    # Проверяем что страница вообще содержит что-то от сайта
     if "pasport" not in text and "документ" not in text and "місця" not in text:
-        return None, "Страница загрузилась некорректно — нет признаков сайта"
+        return None, "Страница загрузилась некорректно"
 
-    # Основная логика
     if NEGATIVE_PHRASE in text:
         return False, "Найдена фраза: мест нет"
     else:
         return True, "Фраза 'всі місця зайняті' НЕ найдена — возможна запись!"
 
-# ─────────────────────────────────────────────
 def is_active_hours():
     hour = datetime.now(WARSAW_TZ).hour
     return not (2 <= hour < 6)
 
-# ─────────────────────────────────────────────
 def main():
-    print("🚀 Монитор запущен, интервал:", CHECK_INTERVAL, "сек.")
+    print("🚀 Монитор запущен, интервал: 5 мин.")
 
     while True:
         if datetime.now(timezone.utc) >= EXPIRY_DATE:
@@ -103,7 +95,6 @@ def main():
             time.sleep(300)
             continue
 
-        now_str = datetime.now(WARSAW_TZ).strftime("%d.%m.%Y %H:%M")
         ts = datetime.now(WARSAW_TZ).strftime("%H:%M:%S")
         print(f"[{ts}] Проверка...", end=" ", flush=True)
 
@@ -113,13 +104,14 @@ def main():
             print(f"⚠️ {msg}")
         elif result:
             print(f"✅ ЕСТЬ СЛОТЫ! {msg}")
+            now_str = datetime.now(WARSAW_TZ).strftime("%d.%m.%Y %H:%M")
             send_telegram(
                 f"🟢 <b>ВОЗМОЖНО ЕСТЬ СЛОТЫ!</b>\n\n"
                 f"📍 ДП Документ Вроцлав\n"
                 f"🕐 {now_str}\n\n"
                 f"👉 <a href='{TARGET_URL}'>Открыть сайт</a>"
             )
-            time.sleep(600)  # после алерта ждём 10 мин
+            time.sleep(600)
         else:
             print(f"⏳ {msg}")
 
