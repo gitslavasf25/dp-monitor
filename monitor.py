@@ -1,6 +1,8 @@
 """
 ДП Документ Вроцлав — монитор свободных слотов
 С residential proxy (WebShare, Germany)
+10:00–18:00 по Варшаве — проверка каждые 10 минут
+Остальное время — каждые 5 минут
 """
 import os
 import sys
@@ -14,7 +16,6 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "1737942735")
 TARGET_URL         = "https://wroclaw.pasport.org.ua/solutions/e-queue"
 EXPIRY_DATE        = datetime(2026, 6, 1, tzinfo=timezone.utc)
 WARSAW_TZ          = timezone(timedelta(hours=2))
-CHECK_INTERVAL     = 300  # 5 минут
 
 NEGATIVE_PHRASE = "всі місця зайняті"
 BLOCK_PHRASES = [
@@ -25,12 +26,17 @@ BLOCK_PHRASES = [
     "ray id:",
 ]
 
-# Прокси WebShare Germany
 PROXY = {
     "server":   "http://p.webshare.io:80",
     "username": "dohwemux-de-3",
     "password": "oinseleltx69",
 }
+
+def get_interval():
+    hour = datetime.now(WARSAW_TZ).hour
+    if 10 <= hour < 18:
+        return 600  # 10 минут в пиковые часы
+    return 300      # 5 минут в остальное время
 
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN:
@@ -90,7 +96,9 @@ def is_active_hours():
     return not (2 <= hour < 6)
 
 def main():
-    print("🚀 Монитор запущен с proxy (Germany), интервал: 5 мин.")
+    print("🚀 Монитор запущен с proxy (Germany)")
+    print("   10:00–18:00 → каждые 10 мин")
+    print("   остальное время → каждые 5 мин")
 
     while True:
         if datetime.now(timezone.utc) >= EXPIRY_DATE:
@@ -98,31 +106,10 @@ def main():
             sys.exit(0)
 
         if not is_active_hours():
-            print(f"😴 Вне рабочего окна, спим 5 мин...")
+            print(f"😴 Вне рабочего окна (02:00–06:00), спим 5 мин...")
             time.sleep(300)
             continue
 
+        interval = get_interval()
         ts = datetime.now(WARSAW_TZ).strftime("%H:%M:%S")
-        print(f"[{ts}] Проверка...", end=" ", flush=True)
-
-        result, msg = check_page()
-
-        if result is None:
-            print(f"⚠️ {msg}")
-        elif result:
-            print(f"✅ ЕСТЬ СЛОТЫ!")
-            now_str = datetime.now(WARSAW_TZ).strftime("%d.%m.%Y %H:%M")
-            send_telegram(
-                f"🟢 <b>ВОЗМОЖНО ЕСТЬ СЛОТЫ!</b>\n\n"
-                f"📍 ДП Документ Вроцлав\n"
-                f"🕐 {now_str}\n\n"
-                f"👉 <a href='{TARGET_URL}'>Открыть сайт</a>"
-            )
-            time.sleep(600)
-        else:
-            print(f"⏳ {msg}")
-
-        time.sleep(CHECK_INTERVAL)
-
-if __name__ == "__main__":
-    main()
+        print(f"[{ts}] Проверка (интервал {interval//60} мин)...", end=" ", flush=
