@@ -1,8 +1,8 @@
 """
 ДП Документ Вроцлав — монитор свободных слотов
 С residential proxy (WebShare, Germany)
-10:00–18:00 по Варшаве — проверка каждые 10 минут
-Остальное время — каждые 5 минут
+10:00-18:00 по Варшаве - проверка каждые 10 минут
+Остальное время - каждые 5 минут
 """
 import os
 import sys
@@ -35,8 +35,8 @@ PROXY = {
 def get_interval():
     hour = datetime.now(WARSAW_TZ).hour
     if 10 <= hour < 18:
-        return 600  # 10 минут в пиковые часы
-    return 300      # 5 минут в остальное время
+        return 600
+    return 300
 
 def send_telegram(text):
     if not TELEGRAM_BOT_TOKEN:
@@ -81,7 +81,7 @@ def check_page():
 
     for phrase in BLOCK_PHRASES:
         if phrase in text:
-            return None, f"Заблокировано (признак: «{phrase}»)"
+            return None, f"Заблокировано: {phrase}"
 
     if "pasport" not in text and "місця" not in text and "документ" not in text:
         return None, "Страница загрузилась некорректно"
@@ -89,27 +89,49 @@ def check_page():
     if NEGATIVE_PHRASE in text:
         return False, "Мест нет"
     else:
-        return True, "Фраза 'всі місця зайняті' НЕ найдена — возможна запись!"
+        return True, "Фраза не найдена - возможна запись!"
 
 def is_active_hours():
     hour = datetime.now(WARSAW_TZ).hour
     return not (2 <= hour < 6)
 
 def main():
-    print("🚀 Монитор запущен с proxy (Germany)")
-    print("   10:00–18:00 → каждые 10 мин")
-    print("   остальное время → каждые 5 мин")
+    print("Монитор запущен с proxy Germany")
+    print("10:00-18:00 каждые 10 мин, остальное время каждые 5 мин")
 
     while True:
         if datetime.now(timezone.utc) >= EXPIRY_DATE:
-            print("⏹ Срок истёк.")
+            print("Срок истёк.")
             sys.exit(0)
 
         if not is_active_hours():
-            print(f"😴 Вне рабочего окна (02:00–06:00), спим 5 мин...")
+            print("Вне рабочего окна 02:00-06:00, спим 5 мин...")
             time.sleep(300)
             continue
 
         interval = get_interval()
         ts = datetime.now(WARSAW_TZ).strftime("%H:%M:%S")
-        print(f"[{ts}] Проверка (интервал {interval//60} мин)...", end=" ", flush=
+        mins = interval // 60
+        print(f"[{ts}] Проверка, интервал {mins} мин...", end=" ", flush=True)
+
+        result, msg = check_page()
+
+        if result is None:
+            print(f"SKIP {msg}")
+        elif result:
+            print(f"SLOTS FOUND!")
+            now_str = datetime.now(WARSAW_TZ).strftime("%d.%m.%Y %H:%M")
+            send_telegram(
+                f"🟢 <b>ВОЗМОЖНО ЕСТЬ СЛОТЫ!</b>\n\n"
+                f"📍 ДП Документ Вроцлав\n"
+                f"🕐 {now_str}\n\n"
+                f"👉 <a href='{TARGET_URL}'>Открыть сайт</a>"
+            )
+            time.sleep(600)
+        else:
+            print(f"no slots. {msg}")
+
+        time.sleep(interval)
+
+if __name__ == "__main__":
+    main()
