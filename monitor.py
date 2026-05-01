@@ -1,7 +1,7 @@
 """
 ДП Документ Вроцлав — облачный монитор свободных слотов
 Запускается через GitHub Actions каждые 5 минут.
-Внутри одного запуска делает 6 проверок с паузой ~50 сек.
+Внутри одного запуска делает 3 проверки с паузой 30 сек.
 При нахождении свободных мест — отправляет Telegram уведомление.
 Активен: до 01.06.2026, время: 06:00–02:00 по Варшаве.
 """
@@ -14,25 +14,20 @@ from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright
 
 # ── Конфиг ────────────────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "ЗАМЕНИ_НА_ТОКЕН")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "1737942735")
 TARGET_URL         = "https://wroclaw.pasport.org.ua/solutions/e-queue"
 
 CHECK_ROUNDS  = int(os.environ.get("CHECK_ROUNDS", "1"))
 SLEEP_BETWEEN = int(os.environ.get("SLEEP_BETWEEN", "0"))
 
-EXPIRY_DATE   = datetime(2026, 6, 1, tzinfo=timezone.utc)
-WARSAW_TZ     = timezone(timedelta(hours=2))  # CEST (летнее время)
+EXPIRY_DATE = datetime(2026, 6, 1, tzinfo=timezone.utc)
+WARSAW_TZ   = timezone(timedelta(hours=2))  # CEST летнее время
 
 # ── Проверка временного окна (06:00–02:00 по Варшаве) ────────────────────────
 def is_active_hours() -> bool:
-    """
-    Активные часы: 06:00–23:59 и 00:00–01:59 по Варшаве.
-    То есть НЕ активен только с 02:00 до 05:59.
-    """
-    now_warsaw = datetime.now(WARSAW_TZ)
-    hour = now_warsaw.hour
-    # Неактивный период: 02:00–05:59
+    hour = datetime.now(WARSAW_TZ).hour
+    # Неактивен только с 02:00 до 05:59
     return not (2 <= hour < 6)
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
@@ -77,12 +72,15 @@ def check_slots() -> tuple[bool, str]:
             browser.close()
             return False, f"Ошибка загрузки страницы: {e}"
 
-        # Ждём пока JS полностью отрисует контент
         page.wait_for_timeout(5000)
         content = page.content().lower()
 
         # ── 1. Негативные сигналы — мест точно нет ──
         negatives = [
+            "всі місця зайняті",
+            "всі місця зайнят",
+            "кількість талонів обмежена",
+            "спробуйте в інший час",
             "немає вільних",
             "нет свободных",
             "сервіс не доступний",
@@ -112,10 +110,9 @@ def check_slots() -> tuple[bool, str]:
             try:
                 els = page.query_selector_all(sel)
                 if els:
-                    count = len(els)
                     page.screenshot(path="screenshot.png", full_page=True)
                     browser.close()
-                    return True, f"Найдено доступных слотов: {count} (селектор: {sel})"
+                    return True, f"Найдено доступных слотов: {len(els)}"
             except Exception:
                 continue
 
@@ -156,10 +153,10 @@ def check_slots() -> tuple[bool, str]:
 
 # ── Основная логика ───────────────────────────────────────────────────────────
 def main():
-    now_utc = datetime.now(timezone.utc)
+    now_utc    = datetime.now(timezone.utc)
     now_warsaw = datetime.now(WARSAW_TZ)
 
-    print(f"Время UTC:    {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Время UTC:     {now_utc.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Время Варшава: {now_warsaw.strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Проверка срока действия
@@ -169,17 +166,14 @@ def main():
 
     # Проверка временного окна
     if not is_active_hours():
-        print(f"😴 Вне рабочего окна (02:00–06:00 по Варшаве). Пропускаем.")
+        print("😴 Вне рабочего окна (02:00–06:00 по Варшаве). Пропускаем.")
         sys.exit(0)
 
     print(f"🔍 Запуск {CHECK_ROUNDS} проверок, пауза {SLEEP_BETWEEN} сек.\n")
-    send_telegram("🧪 Тест: бот работает! Мониторинг ДП Документ Вроцлав активен.")
-    sys.exit(0)
 
     for i in range(1, CHECK_ROUNDS + 1):
         ts = datetime.now(WARSAW_TZ).strftime("%H:%M:%S")
         print(f"[{ts}] Проверка {i}/{CHECK_ROUNDS}...", end=" ", flush=True)
-        
 
         found, details = check_slots()
 
