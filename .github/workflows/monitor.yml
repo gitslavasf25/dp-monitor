@@ -12,28 +12,15 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - name: Проверка срока действия
-        run: |
-          EXPIRY="2026-06-01"
-          TODAY=$(date -u +%Y-%m-%d)
-          if [[ "$TODAY" >= "$EXPIRY" ]]; then
-            echo "EXPIRED=true" >> $GITHUB_ENV
-          else
-            echo "EXPIRED=false" >> $GITHUB_ENV
-          fi
-
       - name: Checkout
-        if: env.EXPIRED == 'false'
         uses: actions/checkout@v4
 
       - name: Setup Python
-        if: env.EXPIRED == 'false'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Cache pip + playwright
-        if: env.EXPIRED == 'false'
         uses: actions/cache@v4
         with:
           path: |
@@ -42,14 +29,12 @@ jobs:
           key: ${{ runner.os }}-pw-${{ hashFiles('**/monitor.py') }}
 
       - name: Install dependencies
-        if: env.EXPIRED == 'false'
         run: |
           pip install playwright requests
           playwright install chromium
           playwright install-deps chromium
 
       - name: Run monitor
-        if: env.EXPIRED == 'false'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -58,7 +43,7 @@ jobs:
         run: python monitor.py
 
       - name: Upload screenshot
-        if: env.EXPIRED == 'false'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: screenshot-${{ github.run_id }}
