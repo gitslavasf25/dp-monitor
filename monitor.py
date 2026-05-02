@@ -2,7 +2,7 @@
 DP Dokument Wroclaw - monitor svobodnykh slotov
 S residential proxy (WebShare, Germany)
 Aktiven: 07:00 - 01:00 po Varshave
-Interval: 10 minut
+Interval: 10 minut - PAUSED (86400)
 """
 import os
 import sys
@@ -27,7 +27,7 @@ BLOCK_PHRASES = [
     "ray id:",
 ]
 
-PROXY_SERVER = "http://p.webshare.io:80"
+PROXY_SERVER = "http://82.22.232.2:80"
 PROXY_USER = "dohwemux-de-3"
 PROXY_PASS = "oinseleltx69"
 
@@ -95,7 +95,7 @@ def is_active_hours():
 
 
 def main():
-    print("Monitor started. Proxy: Germany. Interval: 10 min. Active: 07:00-01:00 Warsaw")
+    print("Monitor started. Proxy: Germany. PAUSED mode (86400s interval)")
 
     while True:
         if datetime.now(timezone.utc) >= EXPIRY_DATE:
