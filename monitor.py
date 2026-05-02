@@ -16,7 +16,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "1737942735")
 TARGET_URL = "https://wroclaw.pasport.org.ua/solutions/e-queue"
 EXPIRY_DATE = datetime(2026, 6, 1, tzinfo=timezone.utc)
 WARSAW_TZ = timezone(timedelta(hours=2))
-CHECK_INTERVAL = 600
+CHECK_INTERVAL = 86400
 
 NEGATIVE_PHRASE = "всі місця зайняті"
 BLOCK_PHRASES = [
